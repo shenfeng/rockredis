@@ -17,7 +17,7 @@ task :test do
 end
 
 task :bench do
-  puts "mkdir -p tmp && (GOPATH=#{pwd} LD_LIBRARY_PATH=#{rock}  go test -bench . -benchmem -cpuprofile cpu.out -memprofile mem.out -benchtime 5s -outputdir tmp)"
+  puts "mkdir -p tmp && (GOPATH=#{pwd} LD_LIBRARY_PATH=#{rock} DYLD_LIBRARY_PATH=#{rock} go test -bench . -benchmem -cpuprofile cpu.out -memprofile mem.out -benchtime 5s -outputdir tmp)"
   # go tool pprof src/src.test tmp/cpu.out
   # go tool pprof src/src.test tmp/mem.out
   sh "mkdir -p tmp && go test -bench . -benchmem -cpuprofile cpu.out -memprofile mem.out -outputdir tmp"

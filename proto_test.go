@@ -34,15 +34,15 @@ func TestReadRequest(t *testing.T) {
 			"*3\r\n$7\r\ncommand\r\n$4\r\narg1\r\n$4\r\narg2\r\n"),
 	})
 
-	if r, err := c.ReadRequest(); err != nil || r.Command != "ping" {
+	if r, err := c.ReadRequest(); err != nil || r.Command != "PING" {
 		t.Fail()
 	}
 
-	if r, err := c.ReadRequest(); err != nil || r.Command != "get" {
+	if r, err := c.ReadRequest(); err != nil || r.Command != "GET" {
 		t.Fail()
 	}
 
-	if r, err := c.ReadRequest(); err != nil || r.Command != "command" {
+	if r, err := c.ReadRequest(); err != nil || r.Command != "COMMAND" {
 		t.Fail()
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	// "fmt"
 )
 
@@ -21,11 +23,12 @@ func (err RedisError) Error() string { return "Redis Error: " + string(err) }
 type redisClient struct {
 	conn net.Conn
 
-	bw   *bufio.Writer
-	rbuf ByteBuffer // zero malloc for most requests
-	wbuf ByteBuffer
-	req  *Request // reuse. goroutine safe: access by only one goroutine sequentially
-	db   int      // which db to use
+	bw    *bufio.Writer
+	rbuf  ByteBuffer // zero malloc for most requests
+	wbuf  ByteBuffer
+	req   *Request // reuse. goroutine safe: access by only one goroutine sequentially
+	dbIdx int      // which db to use
+	db    Store
 }
 
 func NewReisClient(conn net.Conn) *redisClient {
@@ -152,7 +155,7 @@ func (c *redisClient) ReadRequest() (*Request, error) {
 		if l, err := c.readLength(); err == nil {
 			if data, err := c.readNBytes(l); err == nil {
 				if i == 0 {
-					req.Command = string(data)
+					req.Command = strings.ToUpper(string(data))
 				} else {
 					req.Arguments[i-1] = data
 				}
@@ -272,4 +275,26 @@ func (r MultiBulkReply) WriteTo(w io.Writer) (int64, error) {
 		}
 	}
 	return int64(n), err
+}
+
+type AtomicInt int64
+
+func (i *AtomicInt) Add(n int64) int64 {
+	return atomic.AddInt64((*int64)(i), n)
+}
+
+func (i *AtomicInt) Set(n int64) {
+	atomic.StoreInt64((*int64)(i), n)
+}
+
+func (i *AtomicInt) Get() int64 {
+	return atomic.LoadInt64((*int64)(i))
+}
+
+func (i *AtomicInt) CompareAndSwap(old, new int64) bool {
+	return atomic.CompareAndSwapInt64((*int64)(i), old, new)
+}
+
+func (i *AtomicInt) String() string {
+	return strconv.FormatInt(i.Get(), 10)
 }

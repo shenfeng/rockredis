@@ -2,11 +2,29 @@ package main
 
 import (
 	"flag"
-	// "fmt"
-	// "github.com/tecbot/gorocksdb"
 	"log"
+	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
+	"time"
 )
+
+func init() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	runtime.GOMAXPROCS(runtime.NumCPU())
+}
+
+const (
+	ScheduleShutDown      = 1 // receive signal, schedule shutdown
+	CloseCalled           = 2 // close callded
+	MetaPrefix            = 0
+	StringKeyPrefix       = 's'
+	ListKeyPrefix         = 'l'
+	ListMaxZiplistEntries = 32
+)
+
+type HandlerFn func(client *redisClient, req *Request) (Reply, error)
 
 type RockRedisConf struct {
 	Addr        string
@@ -21,44 +39,24 @@ type RockRedisConf struct {
 	ListMaxZiplistEntries int
 }
 
-const (
-	MetaPrefix      = 0
-	StringKeyPrefix = 's'
-	ListKeyPrefix   = 'l'
-)
-
-type HandlerFn func(client *redisClient, req *Request) (Reply, error)
-
-type Server struct {
-	conf     *RockRedisConf
-	handlers map[string]HandlerFn
-	dbs      []map[string][]byte
+type Store interface {
+	Get(key []byte) ([]byte, error)
+	Set(key, value []byte) error
+	Delete(key []byte) error
+	Close() error
+	Flush() error
 }
 
 type DbHandler struct {
 	server *Server
 }
 
-func init() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
-}
-
-func NewServer(cfg *RockRedisConf) (*Server, error) {
-	dbs := make([]map[string][]byte, cfg.Databases)
-	for i := 0; i < cfg.Databases; i++ {
-		dbs[i] = make(map[string][]byte)
-	}
-
-	s := &Server{
-		conf:     cfg,
-		handlers: make(map[string]HandlerFn),
-		dbs:      dbs,
-	}
-
-	if err := s.RegisterHandlers(&DbHandler{server: s}); err != nil {
-		return nil, err
-	}
-	return s, nil
+type Server struct {
+	conf     *RockRedisConf
+	handlers map[string]HandlerFn
+	dbs      []Store
+	shutdown AtomicInt
+	clients  AtomicInt
 }
 
 func main() {
@@ -74,7 +72,24 @@ func main() {
 	if s, err := NewServer(cfg); err != nil {
 		log.Fatal(err)
 	} else {
-		log.Printf("using %v, listen on %v, dbs: %v, lru cache: %v", cfgfile, cfg.Addr, cfg.Databases, cfg.Cache)
-		log.Fatal(s.ListenAndServe())
+		signalCh := make(chan os.Signal, 1)
+		signal.Notify(signalCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
+		go func() {
+			si := <-signalCh
+			log.Printf("Get signal '%v', schedule shutdown", si)
+			s.shutdown.Set(ScheduleShutDown)
+			if s.clients.Get() == 0 {
+				s.Shutdown()
+			}
+			// wait 200ms for all on going commands processed
+			time.Sleep(time.Millisecond * 200)
+			log.Printf("Wait 200ms, remaining clients %v, shutdown anyway", s.clients.Get())
+			s.Shutdown()
+		}()
+
+		log.Printf("Using %v, listen on %v, dbs: %v, lru cache: %v", cfgfile, cfg.Addr, cfg.Databases, cfg.Cache)
+		if err := s.ListenAndServe(); err != nil {
+			log.Fatal(err)
+		}
 	}
 }

@@ -3,19 +3,17 @@ package main
 // import "fmt"
 
 func (h *DbHandler) Get(c *redisClient, key []byte) ([]byte, error) {
-	db := h.server.dbs[c.db]
-	return db[string(key)], nil
+	return c.db.Get(key)
 }
 
 func (h *DbHandler) Set(c *redisClient, key, value []byte) error {
-	db := h.server.dbs[c.db]
-	db[string(key)] = value
-
-	// fmt.Println(db)
-
-	return nil
+	return c.db.Set(key, value)
 }
 
-func (h *DbHandler) Setex(c *redisClient, key, value []byte, expire int) error {
-	return nil
+func (h *DbHandler) Del(c *redisClient, key []byte) error {
+	return c.db.Delete(key)
 }
+
+// func (h *DbHandler) Setex(c *redisClient, key, value []byte, expire int) error {
+// 	return nil
+// }
