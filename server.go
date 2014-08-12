@@ -135,7 +135,7 @@ func (s *Server) RegisterHandlers(handler interface{}) error {
 				}
 			case reflect.TypeOf([][]byte{}):
 				convfns[i-2] = func(idx int, req *Request) (reflect.Value, error) {
-					return reflect.ValueOf(req.Arguments[idx:]), nil
+					return reflect.ValueOf(req.Arguments[idx:req.Size]), nil
 				}
 			}
 		}

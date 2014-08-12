@@ -147,6 +147,7 @@ func (c *redisClient) ReadRequest() (*Request, error) {
 	}
 
 	req := c.req // reuse req, zero malloc
+	req.Size = size - 1
 	if size > len(req.Arguments) {
 		req.Arguments = make([][]byte, size-1)
 	}

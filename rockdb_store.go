@@ -77,3 +77,29 @@ func (s *RockdbStore) Close() error {
 	s.db.Close()
 	return nil
 }
+
+func (s *RockdbStore) Scan(start, end []byte, collector func(key, val []byte) bool) error {
+	it := s.db.NewIterator(s.rro)
+	defer it.Close()
+	it.Seek(start)
+
+	for it = it; it.Valid(); it.Next() {
+		key := it.Key()
+		value := it.Value()
+
+		tmp := make([]byte, 0, key.Size()+value.Size())
+		tmp = append(tmp, key.Data()...)
+		tmp = append(tmp, value.Data()...)
+
+		if !collector(tmp[:key.Size()], tmp[key.Size():]) {
+			key.Free()
+			value.Free()
+			break
+		} else {
+			key.Free()
+			value.Free()
+		}
+	}
+
+	return nil
+}

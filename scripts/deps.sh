@@ -16,8 +16,8 @@ function full_path() {
 DIR=$(full_path)
 export GOPATH=$DIR
 
-mkdir -p deps
-cd "$DIR/deps"
+cd "$DIR"
+mkdir -p deps && cd deps
 if [ -d rocksdb ]; then
      (cd rocksdb && git pull)
 else

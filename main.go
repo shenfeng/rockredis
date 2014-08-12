@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime"
@@ -29,6 +31,7 @@ type HandlerFn func(client *redisClient, req *Request) (Reply, error)
 type RockRedisConf struct {
 	Addr        string
 	Dir         string
+	Http        string
 	Compression string
 	Loglevel    string
 	Logfile     string
@@ -42,6 +45,7 @@ type RockRedisConf struct {
 type Store interface {
 	Get(key []byte) ([]byte, error)
 	Set(key, value []byte) error
+	Scan(start, end []byte, collector func(key, val []byte) bool) error
 	Delete(key []byte) error
 	Close() error
 	Flush() error
@@ -88,6 +92,13 @@ func main() {
 		}()
 
 		log.Printf("Using %v, listen on %v, dbs: %v, lru cache: %v", cfgfile, cfg.Addr, cfg.Databases, cfg.Cache)
+
+		// go tool pprof rockredis http://localhost:6666/debug/pprof/profile
+		// go tool pprof rockredis http://localhost:6666/debug/pprof/heap
+		go func() {
+			log.Fatal(http.ListenAndServe(cfg.Http, nil))
+		}()
+
 		if err := s.ListenAndServe(); err != nil {
 			log.Fatal(err)
 		}

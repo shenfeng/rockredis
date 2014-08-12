@@ -28,7 +28,7 @@ func TestRegisterHandlers(t *testing.T) {
 	h := &testInt{i: 10}
 
 	if err := s.RegisterHandlers(h); err == nil {
-		req := &Request{Command: "ADD", Arguments: [][]byte{[]byte("1")}}
+		req := &Request{Command: "ADD", Size: 1, Arguments: [][]byte{[]byte("1")}}
 
 		if r, err := s.Handle(testClient, req); err == nil {
 			switch reply := r.(type) {
@@ -45,6 +45,7 @@ func TestRegisterHandlers(t *testing.T) {
 
 		req = &Request{
 			Command:   "ADDS",
+			Size:      3,
 			Arguments: [][]byte{[]byte("2"), []byte("aaa"), []byte("bbb")},
 		}
 
@@ -73,6 +74,7 @@ func BenchmarkCallHandler(b *testing.B) {
 	// req := &Request{Command: "add", Arguments: [][]byte{[]byte("1")}}
 	req := &Request{
 		Command:   "ADDS",
+		Size:      3,
 		Arguments: [][]byte{[]byte("2"), []byte("aaa"), []byte("bbb")},
 	}
 
