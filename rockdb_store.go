@@ -83,23 +83,72 @@ func (s *RockdbStore) Scan(start, end []byte, collector func(key, val []byte) bo
 	defer it.Close()
 	it.Seek(start)
 
+	// save memory allocation
+	buffer := make([]byte, 8912*2) // 16k buffer
+	bufferIdx := 0
+
 	for it = it; it.Valid(); it.Next() {
-		key := it.Key()
+		// key := it.Key()
 		value := it.Value()
+		var v []byte
 
-		tmp := make([]byte, 0, key.Size()+value.Size())
-		tmp = append(tmp, key.Data()...)
-		tmp = append(tmp, value.Data()...)
+		if value.Size() > len(buffer) {
+			v = make([]byte, value.Size())
+			copy(v, value.Data())
+		} else {
+			if value.Size() > len(buffer)-bufferIdx {
+				buffer = make([]byte, len(buffer))
+				bufferIdx = 0
+			}
+			copy(buffer[bufferIdx:], value.Data())
+			v = buffer[bufferIdx : bufferIdx+value.Size()]
+			bufferIdx += value.Size()
+		}
 
-		if !collector(tmp[:key.Size()], tmp[key.Size():]) {
-			key.Free()
+		if !collector(nil, v) {
+			// key.Free()
 			value.Free()
 			break
 		} else {
-			key.Free()
+			// key.Free()
 			value.Free()
 		}
+
 	}
+
+	// for it = it; it.Valid(); it.Next() {
+	// 	key := it.Key()
+	// 	value := it.Value()
+
+	// 	var k, v []byte
+
+	// 	if key.Size()+value.Size() < len(buffer)-bufferIdx {
+	// 		copy(buffer[bufferIdx:], key.Data())
+	// 		k = buffer[bufferIdx : bufferIdx+key.Size()]
+	// 		bufferIdx += key.Size()
+
+	// 		copy(buffer[bufferIdx:], value.Data())
+	// 		v = buffer[bufferIdx : bufferIdx+value.Size()]
+	// 		bufferIdx += value.Size()
+	// 	} else {
+	// 		tmp := make([]byte, 0, key.Size()+value.Size())
+	// 		tmp = append(tmp, key.Data()...)
+	// 		tmp = append(tmp, value.Data()...)
+
+	// 		k = tmp[:key.Size()]
+	// 		v = tmp[key.Size():]
+	// 	}
+
+	// 	if !collector(k, v) {
+	// 		key.Free()
+	// 		value.Free()
+	// 		break
+	// 	} else {
+	// 		key.Free()
+	// 		value.Free()
+	// 	}
+
+	// }
 
 	return nil
 }

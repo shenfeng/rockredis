@@ -65,13 +65,7 @@ func (s *Server) ServeClient(c net.Conn) {
 			c.Close()
 			break
 		}
-
-		_, err = res.WriteTo(client.bw)
-		if err != nil {
-			c.Close()
-			break
-		}
-
+		res.Write(client.bw)
 		if client.bw.Flush() != nil {
 			c.Close()
 			break

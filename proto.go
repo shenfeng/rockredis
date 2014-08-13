@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bufio"
-	"io"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
 	"sync/atomic"
-	// "fmt"
 )
 
 type ByteBuffer struct {
@@ -16,16 +14,18 @@ type ByteBuffer struct {
 	limit  int
 }
 
-type RedisError string
-
-func (err RedisError) Error() string { return "Redis Error: " + string(err) }
+type BufferedConn struct {
+	conn   net.Conn // the destination
+	buffer *ByteBuffer
+}
 
 type redisClient struct {
 	conn net.Conn
+	// bw   *bufio.Writer
+	rbuf *ByteBuffer // zero malloc for most requests
+	bw   *BufferedConn
+	// wbuf ByteBuffer
 
-	bw    *bufio.Writer
-	rbuf  ByteBuffer // zero malloc for most requests
-	wbuf  ByteBuffer
 	req   *Request // reuse. goroutine safe: access by only one goroutine sequentially
 	dbIdx int      // which db to use
 	db    Store
@@ -33,11 +33,8 @@ type redisClient struct {
 
 func NewReisClient(conn net.Conn) *redisClient {
 	return &redisClient{
-		rbuf: ByteBuffer{buffer: make([]byte, 8912)},
-
-		bw: bufio.NewWriter(conn),
-
-		wbuf: ByteBuffer{buffer: make([]byte, 8912)},
+		rbuf: &ByteBuffer{buffer: make([]byte, 8912)},
+		bw:   &BufferedConn{buffer: &ByteBuffer{buffer: make([]byte, 8912)}, conn: conn},
 		conn: conn,
 		req:  &Request{Arguments: make([][]byte, 8)},
 	}
@@ -50,18 +47,45 @@ func parseInt(b []byte) (int, error) {
 	return strconv.Atoi(string(b))
 }
 
-func (p *ByteBuffer) moreSpace(n int, write bool) {
+func (p *ByteBuffer) writeInt(i int) {
+	if i < 10 {
+		p.buffer[p.pos] = byte(i + '0')
+		p.pos += 1
+	} else {
+		pos := p.pos
+		start := pos
+		for ; i > 0; i = i / 10 {
+			p.buffer[pos] = byte(i%10 + '0')
+			pos += 1
+		}
+
+		p.pos = pos
+		pos -= 1
+		for start < pos {
+			p.buffer[start], p.buffer[pos] = p.buffer[pos], p.buffer[start]
+			start += 1
+			pos -= 1
+		}
+	}
+	p.buffer[p.pos] = '\r'
+	p.buffer[p.pos+1] = '\n'
+	p.pos += 2
+}
+
+func (p *ByteBuffer) write(data []byte) {
+	p.moreSpace(len(data))
+	copy(p.buffer[p.pos:], data)
+	p.pos += len(data)
+}
+
+func (p *ByteBuffer) moreSpace(n int) {
 	if p.pos+n > cap(p.buffer) {
 		size := cap(p.buffer) * 2
 		if size < p.pos+n {
 			size = p.pos + n
 		}
 		tmp := make([]byte, size)
-		if write {
-			copy(tmp, p.buffer[:p.pos]) // for write buffer
-		} else {
-			copy(tmp, p.buffer[p.pos:p.limit])
-		}
+		copy(tmp, p.buffer)
 		p.buffer = tmp
 	}
 }
@@ -76,7 +100,7 @@ func (c *redisClient) readMore() error {
 }
 
 func (c *redisClient) readNBytes(length int) ([]byte, error) {
-	c.rbuf.moreSpace(length+2, false)
+	c.rbuf.moreSpace(length + 2)
 	for c.rbuf.pos+length+2 > c.rbuf.limit {
 		err := c.readMore()
 		if err != nil {
@@ -94,17 +118,10 @@ func (c *redisClient) readLength() (int, error) {
 		return 0, err
 	}
 
-	// if len(line) == 0 {
-	// 	fmt.Println(c.rbuf.pos, c.rbuf.limit)
-	// 	fmt.Println(string(c.rbuf.buffer[:c.rbuf.limit]))
-	// 	fmt.Println("----------------------------------------")
-	// }
-
-	size, err := parseInt(line[1:])
+	size, err := parseInt(line[1:]) // $, or *
 	if err != nil {
-		return 0, RedisError("request expected a number")
+		return 0, fmt.Errorf("Redis Error: request expected a number")
 	}
-
 	return size, err
 }
 
@@ -112,7 +129,7 @@ func (c *redisClient) readLine() ([]byte, error) {
 	start := c.rbuf.pos
 	for {
 		if c.rbuf.pos >= c.rbuf.limit {
-			c.rbuf.moreSpace(128, false)
+			c.rbuf.moreSpace(128)
 			err := c.readMore()
 			if err != nil {
 				return nil, err
@@ -124,9 +141,6 @@ func (c *redisClient) readLine() ([]byte, error) {
 		}
 		c.rbuf.pos += 1
 	}
-
-	// println(string(c.rbuf.buffer[start : c.rbuf.pos-2]))
-
 	return c.rbuf.buffer[start : c.rbuf.pos-2], nil
 }
 
@@ -134,7 +148,7 @@ func (c *redisClient) ReadRequest() (*Request, error) {
 	if c.rbuf.pos == c.rbuf.limit {
 		c.rbuf.pos = 0
 		c.rbuf.limit = 0
-		c.rbuf.moreSpace(128, false)
+		c.rbuf.moreSpace(128)
 		err := c.readMore()
 		if err != nil {
 			return nil, err
@@ -167,49 +181,6 @@ func (c *redisClient) ReadRequest() (*Request, error) {
 	}
 
 	return req, nil
-
-	// pos := c.rbuf.pos
-	// c.rbuf.pos += 1
-	// line, err := c.readLine()
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// switch c.rbuf.buffer[pos] {
-	// case '*':
-	// 	// size, err := strconv.Atoi(string(line))
-	// 	size, err := parseInt(line)
-	// 	if err != nil || size < 1 {
-	// 		return nil, RedisError("request expected a number")
-	// 	}
-
-	// 	req := c.req // reuse req, zero malloc
-	// 	if size > len(req.Arguments) {
-	// 		req.Arguments = make([][]byte, size-1)
-	// 	}
-
-	// 	line, err := c.readLine()
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-
-	// 	length, err := parseInt(line[1:]) //  line[0] == $
-	// 	if err != nil || length < 1 {
-	// 		return nil, err
-	// 	}
-
-	// 	req.Command = string(line)
-	// 	for i := 0; i < size-1; i++ {
-	// 		if arg, err := c.readLine(); err != nil {
-	// 			return nil, err
-	// 		} else {
-	// 			req.Arguments[i] = arg
-	// 		}
-	// 	}
-	// 	return req, nil
-	// }
-
-	// return nil, nil
 }
 
 type Request struct {
@@ -218,7 +189,9 @@ type Request struct {
 	Arguments [][]byte
 }
 
-type Reply io.WriterTo
+type Reply interface {
+	Write(bw *BufferedConn) error
+}
 type ErrorReply struct{ message string }
 type StatusReply struct{ code string }
 type IntReply struct{ number int }
@@ -236,46 +209,58 @@ var (
 	ErrExpectEvenPair       = &ErrorReply{"Got uneven number of key val pairs"}
 )
 
-func (er ErrorReply) WriteTo(w io.Writer) (int64, error) {
-	n, err := w.Write([]byte("-ERROR " + er.message + "\r\n"))
-	return int64(n), err
+func (er ErrorReply) Write(bw *BufferedConn) error {
+	bw.buffer.write([]byte("-ERROR " + er.message + "\r\n"))
+	return nil
 }
 
-func (r StatusReply) WriteTo(w io.Writer) (int64, error) {
-	n, err := w.Write([]byte("+" + r.code + "\r\n"))
-	return int64(n), err
+func (r StatusReply) Write(bw *BufferedConn) error {
+	bw.buffer.write([]byte("+" + r.code + "\r\n"))
+	return nil
 }
 
-func (r IntReply) WriteTo(w io.Writer) (int64, error) {
-	n, err := w.Write([]byte(":" + strconv.Itoa(r.number) + "\r\n"))
-	return int64(n), err
+func (r IntReply) Write(bw *BufferedConn) error {
+	bw.buffer.write([]byte(":" + strconv.Itoa(r.number) + "\r\n"))
+	return nil
 }
 
-func (r BulkReply) WriteTo(w io.Writer) (int64, error) {
-	n, err := writeBytes(w, r.value)
-	return int64(n), err
+func (r BulkReply) Write(bw *BufferedConn) error {
+	bw.writeBytes(r.value)
+	return nil
 }
 
-func writeBytes(w io.Writer, data []byte) (int, error) {
+func (r MultiBulkReply) Write(bw *BufferedConn) error {
+	bw.buffer.write([]byte("*" + strconv.Itoa(len(r.values)) + "\r\n"))
+	for _, value := range r.values {
+		bw.writeBytes(value)
+	}
+	return nil
+}
+
+func (bw *BufferedConn) writeBytes(data []byte) {
 	if data == nil {
-		return w.Write([]byte("$-1\r\n"))
+		bw.buffer.write([]byte("$-1\r\n"))
+	} else {
+		p := bw.buffer
+		p.moreSpace(len(data) + 10)
+		p.buffer[p.pos] = '$'
+		p.pos += 1
+		p.writeInt(len(data))
+
+		copy(p.buffer[p.pos:], data)
+		p.pos += len(data)
+		p.buffer[p.pos] = '\r'
+		p.buffer[p.pos+1] = '\n'
+		p.pos += 2
+		// d := "$" + strconv.Itoa(len(data)) + "\r\n" + string(data) + "\r\n"
+		// bw.buffer.write([]byte(d))
 	}
-	d := "$" + strconv.Itoa(len(data)) + "\r\n" + string(data) + "\r\n"
-	return w.Write([]byte(d))
 }
 
-func (r MultiBulkReply) WriteTo(w io.Writer) (int64, error) {
-	n, err := w.Write([]byte("*" + strconv.Itoa(len(r.values)) + "\r\n"))
-	if err == nil {
-		for _, value := range r.values {
-			if n_, err := writeBytes(w, value); err != nil {
-				return int64(n + n_), err
-			} else {
-				n += n_
-			}
-		}
-	}
-	return int64(n), err
+func (bw *BufferedConn) Flush() error {
+	_, err := bw.conn.Write(bw.buffer.buffer[:bw.buffer.pos])
+	bw.buffer.pos = 0
+	return err
 }
 
 type AtomicInt int64
