@@ -62,6 +62,7 @@ func BenchmarkRockdbStore(b *testing.B) {
 	b.Logf("n: %v, using tmp path: %v", b.N, path)
 	defer os.RemoveAll(path)
 	db, err := NewRockdbStore(path, 0, "snappy")
+
 	// db, err := NewRockdbStore(path, 0, "")
 	if err != nil {
 		b.Error(err)
@@ -75,5 +76,7 @@ func BenchmarkRockdbStore(b *testing.B) {
 		db.Set(k, v)
 		db.Get(k)
 	}
-	db.Close()
+	if db != nil {
+		db.Close()
+	}
 }
