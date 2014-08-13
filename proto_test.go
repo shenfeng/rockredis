@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"net"
 	"strconv"
@@ -13,7 +14,6 @@ type MockConn struct {
 	offset int
 }
 
-func (c *MockConn) Write(b []byte) (n int, err error)  { panic("not implemented") }
 func (c *MockConn) Close() error                       { panic("not implemented") }
 func (c *MockConn) LocalAddr() net.Addr                { panic("not implemented") }
 func (c *MockConn) RemoteAddr() net.Addr               { panic("not implemented") }
@@ -25,6 +25,11 @@ func (c *MockConn) Read(b []byte) (n int, err error) {
 	n = copy(b, c.data)
 	c.offset += n
 	return n, nil
+}
+
+func (c *MockConn) Write(b []byte) (n int, err error) {
+	c.data = append(c.data, b...)
+	return len(b), nil
 }
 
 func TestReadRequest(t *testing.T) {
@@ -65,6 +70,28 @@ func TestParseInt(t *testing.T) {
 		if n, _ := parseInt([]byte(s)); n != i {
 			t.Fail()
 		}
+	}
+}
+
+func TestEncodingBulkReply(t *testing.T) {
+	br := BulkReply{[]byte("test")}
+	mc := &MockConn{}
+	bc := &BufferedConn{buffer: &ByteBuffer{buffer: make([]byte, 8912)}, conn: mc}
+	br.Write(bc)
+	bc.Flush()
+	if !bytes.Equal(mc.data, []byte("$4\r\ntest\r\n")) {
+		t.Errorf("not equal")
+	}
+}
+
+func TestEncodingMultiBulkReply(t *testing.T) {
+	br := MultiBulkReply{[][]byte{[]byte("test0123456789"), []byte("test2")}}
+	mc := &MockConn{}
+	bc := &BufferedConn{buffer: &ByteBuffer{buffer: make([]byte, 8912)}, conn: mc}
+	br.Write(bc)
+	bc.Flush()
+	if !bytes.Equal(mc.data, []byte("*2\r\n$14\r\ntest0123456789\r\n$5\r\ntest2\r\n")) {
+		t.Errorf("not equal")
 	}
 }
 
