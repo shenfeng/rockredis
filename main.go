@@ -18,11 +18,10 @@ func init() {
 }
 
 const (
-	ScheduleShutDown      = 1 // receive signal, schedule shutdown
-	CloseCalled           = 2 // close callded
-	MetaPrefix            = 0
-	StringKeyPrefix       = 's'
-	ListKeyPrefix         = 'l'
+	ScheduleShutDown = 1 // receive signal, schedule shutdown
+	CloseCalled      = 2 // close callded
+	StringKeyPrefix  = 's'
+	ListKeyPrefix    = 'l'
 )
 
 type HandlerFn func(client *redisClient, req *Request) (Reply, error)
@@ -42,9 +41,10 @@ type RockRedisConf struct {
 }
 
 type Store interface {
-	Get(key []byte) ([]byte, error)
+	Get(a *Arena, key []byte) ([]byte, error)
 	Set(key, value []byte) error
-	Scan(start, end []byte, collector func(key, val []byte) bool) error
+	Scan(a *Arena, start []byte, collector func(key, val []byte) bool) error
+	Batch(ks, vs [][]byte) error
 	Delete(key []byte) error
 	Close() error
 	Flush() error

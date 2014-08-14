@@ -101,6 +101,13 @@ func (c *redisClient) readMore() error {
 	return nil
 }
 
+func (c *redisClient) listKey(key []byte) []byte {
+	lkey := c.arena.Allocate(len(key) + 1)
+	lkey[0] = 'l'
+	copy(lkey[1:], key)
+	return lkey
+}
+
 func (c *redisClient) readNBytes(length int) ([]byte, error) {
 	c.rbuf.moreSpace(length + 2)
 	for c.rbuf.pos+length+2 > c.rbuf.limit {

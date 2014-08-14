@@ -27,6 +27,7 @@ func TestRockdbStore(t *testing.T) {
 	// }
 	// fmt.Printf("k size: %d, v size: %d", k, v)
 
+	a := NewArena(32 * 1024)
 	datas := [][]byte{
 		[]byte("key"), []byte("value"), []byte("key2"), []byte("value2"),
 	}
@@ -36,7 +37,7 @@ func TestRockdbStore(t *testing.T) {
 			t.Error(err)
 		}
 
-		if r, err := db.Get(k); err != nil {
+		if r, err := db.Get(a, k); err != nil {
 			t.Error(err)
 		} else if !bytes.Equal(r, v) {
 			t.Errorf("not get wanted, expect: %v, get: %v", string(v), string(r))
@@ -47,8 +48,8 @@ func TestRockdbStore(t *testing.T) {
 		}
 
 		// should get nil
-		if r, err := db.Get(k); err != nil || r != nil {
-			t.Error(err)
+		if r, err := db.Get(a, k); err != nil || r != nil {
+			t.Error(err, r)
 		}
 	}
 	db.Close()
@@ -63,6 +64,8 @@ func BenchmarkRockdbStore(b *testing.B) {
 	defer os.RemoveAll(path)
 	db, err := NewRockdbStore(path, 0, "snappy")
 
+	a := NewArena(32 * 1024)
+
 	// db, err := NewRockdbStore(path, 0, "")
 	if err != nil {
 		b.Error(err)
@@ -74,7 +77,7 @@ func BenchmarkRockdbStore(b *testing.B) {
 		k[i%len(k)] += 1
 		v[i%len(v)] += 1
 		db.Set(k, v)
-		db.Get(k)
+		db.Get(a, k)
 	}
 	if db != nil {
 		db.Close()
