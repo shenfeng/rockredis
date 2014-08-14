@@ -29,14 +29,16 @@ type redisClient struct {
 	req   *Request // reuse. goroutine safe: access by only one goroutine sequentially
 	dbIdx int      // which db to use
 	db    Store
+	arena *Arena
 }
 
 func NewReisClient(conn net.Conn) *redisClient {
 	return &redisClient{
-		rbuf: &ByteBuffer{buffer: make([]byte, 8912)},
-		bw:   &BufferedConn{buffer: &ByteBuffer{buffer: make([]byte, 8912)}, conn: conn},
-		conn: conn,
-		req:  &Request{Arguments: make([][]byte, 8)},
+		rbuf:  &ByteBuffer{buffer: make([]byte, 8912)},
+		bw:    &BufferedConn{buffer: &ByteBuffer{buffer: make([]byte, 8912)}, conn: conn},
+		conn:  conn,
+		req:   &Request{Arguments: make([][]byte, 8)},
+		arena: NewArena(1024 * 32), //  speed up []byte allocation
 	}
 }
 

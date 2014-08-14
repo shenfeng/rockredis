@@ -23,7 +23,6 @@ const (
 	MetaPrefix            = 0
 	StringKeyPrefix       = 's'
 	ListKeyPrefix         = 'l'
-	ListMaxZiplistEntries = 32
 )
 
 type HandlerFn func(client *redisClient, req *Request) (Reply, error)
