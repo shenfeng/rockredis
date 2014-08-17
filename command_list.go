@@ -1,64 +1,71 @@
 package main
 
-import (
-	"fmt"
-)
+func listMetaKey(a *Arena, key []byte) []byte {
+	mKey := a.Allocate(len(key) + 1)
+	mKey[0] = kListKeyPrefix
+	copy(mKey[1:], key)
+	return mKey
+}
+
 
 func (h *DbHandler) Rpush(c *redisClient, key []byte, values ...[]byte) (int, error) {
-	if old, err := c.db.Get(c.arena, key); err != nil {
+	metaKey := listMetaKey(c.arena, key)
+	if old, err := c.db.Get(c.arena, metaKey); err != nil {
 		return 0, err
 	} else if old == nil { // new value
-		ks, vs := NewLinkedList(c.arena, key, values)
+		ks, vs := NewLinkedList(c.arena, metaKey, values)
 		return len(values), c.db.Batch(ks, vs)
 	} else {
 		li := LinkedList(old)
-		size, _ := li.listMeta()
-		ks, vs := li.Rpush(c.arena, key, values)
-		return size + len(values), c.db.Batch(ks, vs)
+		llen, _ := li.listMeta()
+		ks, vs := li.Rpush(c.arena, metaKey, values)
+		return llen + len(values), c.db.Batch(ks, vs)
 	}
 }
 
 func (h *DbHandler) Lpush(c *redisClient, key []byte, values ...[]byte) (int, error) {
-	if old, err := c.db.Get(c.arena, key); err != nil {
+	metaKey := listMetaKey(c.arena, key)
+	if old, err := c.db.Get(c.arena, metaKey); err != nil {
 		return 0, err
 	} else if old == nil { // new value
-		ks, vs := NewLinkedList(c.arena, key, values)
+		ks, vs := NewLinkedList(c.arena, metaKey, values)
 		return len(values), c.db.Batch(ks, vs)
 	} else {
 		li := LinkedList(old)
-		size, _ := li.listMeta()
-		ks, vs := li.Lpush(c.arena, key, values)
-		return size + len(values), c.db.Batch(ks, vs)
+		llen, _ := li.listMeta()
+		ks, vs := li.Lpush(c.arena, metaKey, values)
+		return llen + len(values), c.db.Batch(ks, vs)
 	}
-}
-
-func normalsize(input, size int) int {
-	for input < 0 {
-		input += size
-	}
-	if input > size {
-		input = size
-	}
-	return input
 }
 
 func (h *DbHandler) Lrange(c *redisClient, key []byte, start, end int) ([][]byte, error) {
-	if old, err := c.db.Get(c.arena, key); err != nil || old == nil {
+	metaKey := listMetaKey(c.arena, key)
+	if old, err := c.db.Get(c.arena, metaKey); err != nil || old == nil {
 		return nil, err
 	} else {
-		size, seqstart := LinkedList(old).listMeta()
-		start, end = normalsize(start, size), normalsize(end, size)
-		if start > end || start > size {
-			return nil, fmt.Errorf("Lrange: begin(%v) > end(%v)", start, end)
+		llen, seqstart := LinkedList(old).listMeta()
+		// [start, end]
+		if start < 0 { start += llen}
+		if end < 0 { end += llen}
+		if start <0 { start = 0 }
+
+		if start > end || start >= llen { 
+			/* Invariant: start >= 0, so this test will be true when end < 0.
+			* The range is empty when start > end or start >= length. */
+			return nil, nil
 		}
-		startKey := listKey(c.arena, key, start+seqstart)
-		result := make([][]byte, 0, end-start)
+
+		if end >= llen { end = llen - 1 }
+		count := end - start + 1
+
+		startKey := listDataKey(c.arena, metaKey, start+seqstart)
+		result := make([][]byte, 0, count)
 
 		n := 0
 		collector := func(k, v []byte) bool {
 			result = append(result, v)
 			n += 1
-			if n >= end-start {
+			if n >= count {
 				return false
 			} else {
 				return true

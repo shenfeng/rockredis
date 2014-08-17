@@ -29,18 +29,20 @@ func NewLinkedList(a *Arena, key []byte, values [][]byte) (ks, vs [][]byte) {
 	vs[0] = listMeta
 
 	for i := 0; i < len(values); i++ {
-		ks[i+1] = listKey(a, key, SeqStart+i)
+		ks[i+1] = listDataKey(a, key, SeqStart+i)
 		vs[i+1] = values[i]
 	}
 
 	return
 }
 
-func listKey(a *Arena, key []byte, seq int) []byte {
-	listKey := a.Allocate(len(key) + 4)
-	copy(listKey, key)
-	bigEndian.PutUint32(listKey[len(key):], uint32(seq))
-	return listKey
+func listDataKey(a *Arena, mKey []byte, seq int) []byte {
+	dKey := a.Allocate(len(mKey) + 4 + 1)
+	dKey[0] = kListDataKeyPrefix
+	dKey[len(mKey)] = ':'
+	copy(dKey[1:], mKey[1:]) // ignore the first kListKeyPrefix
+	bigEndian.PutUint32(dKey[len(mKey)+1:], uint32(seq))
+	return dKey
 }
 
 func (li LinkedList) Rpush(a *Arena, key []byte, values [][]byte) (ks, vs [][]byte) {
@@ -55,7 +57,7 @@ func (li LinkedList) Rpush(a *Arena, key []byte, values [][]byte) (ks, vs [][]by
 	vs[0] = []byte(li)
 
 	for i := 0; i < len(values); i++ {
-		ks[i+1] = listKey(a, key, minseq+size+i)
+		ks[i+1] = listDataKey(a, key, minseq+size+i)
 		vs[i+1] = values[i]
 	}
 
@@ -75,7 +77,7 @@ func (li LinkedList) Lpush(a *Arena, key []byte, values [][]byte) (ks, vs [][]by
 	vs[0] = []byte(li)
 
 	for i := 0; i < len(values); i++ {
-		ks[i+1] = listKey(a, key, minseq-i-1)
+		ks[i+1] = listDataKey(a, key, minseq-i-1)
 		vs[i+1] = values[i]
 	}
 

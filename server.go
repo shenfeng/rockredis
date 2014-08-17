@@ -70,6 +70,8 @@ func (s *Server) ServeClient(c net.Conn) {
 			c.Close()
 			break
 		}
+
+		client.arena.Reset()
 	}
 
 	// no runing clients, server get shutdown signal

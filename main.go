@@ -20,8 +20,10 @@ func init() {
 const (
 	ScheduleShutDown = 1 // receive signal, schedule shutdown
 	CloseCalled      = 2 // close callded
-	StringKeyPrefix  = 's'
-	ListKeyPrefix    = 'l'
+
+	kStringKeyPrefix   = 's'
+	kListKeyPrefix     = 'l'
+	kListDataKeyPrefix = 'd'
 )
 
 type HandlerFn func(client *redisClient, req *Request) (Reply, error)
@@ -37,7 +39,7 @@ type RockRedisConf struct {
 	Cache       int
 
 	// How many list element saved inline
-	ListMaxZiplistEntries int
+//	ListMaxZiplistEntries int
 }
 
 type Store interface {
