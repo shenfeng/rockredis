@@ -7,6 +7,16 @@ func listMetaKey(a *Arena, key []byte) []byte {
 	return mKey
 }
 
+func (h *DbHandler) Llen(c *redisClient, key []byte) (int, error) {
+	metaKey := listMetaKey(c.arena, key)
+	if old, err := c.db.Get(c.arena, metaKey); err != nil || old == nil {
+		return 0, nil
+	} else {
+		li := LinkedList(old)
+		llen, _ := li.listMeta()
+		return llen, nil
+	}
+}
 
 func (h *DbHandler) Rpush(c *redisClient, key []byte, values ...[]byte) (int, error) {
 	metaKey := listMetaKey(c.arena, key)
@@ -38,6 +48,38 @@ func (h *DbHandler) Lpush(c *redisClient, key []byte, values ...[]byte) (int, er
 	}
 }
 
+func (h *DbHandler) Lpop(c *redisClient, key []byte) ([]byte, error) {
+	metaKey := listMetaKey(c.arena, key)
+	if old, err := c.db.Get(c.arena, metaKey); err != nil || old == nil {
+		return nil, err
+	} else {
+		li := LinkedList(old)
+		_, minSeq := li.listMeta()
+		if val, err := c.db.Get(c.arena, listDataKey(c.arena, metaKey, minSeq)); err != nil {
+			return nil, err
+		} else {
+			ks, vs := li.Pop(c.arena, metaKey, 1, 0)
+			return val, c.db.Batch(ks, vs)
+		}
+	}
+}
+
+func (h *DbHandler) Rpop(c *redisClient, key []byte) ([]byte, error) {
+	metaKey := listMetaKey(c.arena, key)
+	if old, err := c.db.Get(c.arena, metaKey); err != nil || old == nil {
+		return nil, err
+	} else {
+		li := LinkedList(old)
+		llen, minSeq := li.listMeta()
+		if val, err := c.db.Get(c.arena, listDataKey(c.arena, metaKey, minSeq+llen-1)); err != nil {
+			return nil, err
+		} else {
+			ks, vs := li.Pop(c.arena, metaKey, 0, 1)
+			return val, c.db.Batch(ks, vs)
+		}
+	}
+}
+
 func (h *DbHandler) Lrange(c *redisClient, key []byte, start, end int) ([][]byte, error) {
 	metaKey := listMetaKey(c.arena, key)
 	if old, err := c.db.Get(c.arena, metaKey); err != nil || old == nil {
@@ -45,17 +87,25 @@ func (h *DbHandler) Lrange(c *redisClient, key []byte, start, end int) ([][]byte
 	} else {
 		llen, seqstart := LinkedList(old).listMeta()
 		// [start, end]
-		if start < 0 { start += llen}
-		if end < 0 { end += llen}
-		if start <0 { start = 0 }
+		if start < 0 {
+			start += llen
+		}
+		if end < 0 {
+			end += llen
+		}
+		if start < 0 {
+			start = 0
+		}
 
-		if start > end || start >= llen { 
+		if start > end || start >= llen {
 			/* Invariant: start >= 0, so this test will be true when end < 0.
 			* The range is empty when start > end or start >= length. */
 			return nil, nil
 		}
 
-		if end >= llen { end = llen - 1 }
+		if end >= llen {
+			end = llen - 1
+		}
 		count := end - start + 1
 
 		startKey := listDataKey(c.arena, metaKey, start+seqstart)
@@ -76,5 +126,43 @@ func (h *DbHandler) Lrange(c *redisClient, key []byte, start, end int) ([][]byte
 			return nil, err
 		}
 		return result, nil
+	}
+}
+
+func (h *DbHandler) Ltrim(c *redisClient, key []byte, start, end int) error {
+	metaKey := listMetaKey(c.arena, key)
+	if old, err := c.db.Get(c.arena, metaKey); err != nil || old == nil {
+		return err
+	} else {
+		li := LinkedList(old)
+		llen, _ := li.listMeta()
+		ltrim, rtrim := 0, 0
+
+		// [start, end]
+		if start < 0 {
+			start += llen
+		}
+		if end < 0 {
+			end += llen
+		}
+		if start < 0 {
+			start = 0
+		}
+
+		if start > end || start >= llen {
+			ltrim, rtrim = llen, 0 //  remove all
+		} else {
+			if end >= llen {
+				end = llen - 1
+			}
+			ltrim, rtrim = start, llen-end-1
+		}
+
+		ks, vs := li.Pop(c.arena, metaKey, ltrim, rtrim)
+		if len(ks) > 0 {
+			return c.db.Batch(ks, vs)
+		} else {
+			return nil
+		}
 	}
 }
